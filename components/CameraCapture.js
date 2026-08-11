@@ -11,9 +11,9 @@ export default function CameraCapture({ onCapture, onClose }) {
     useEffect(() => {
         async function startCamera() {
             try {
-                const s = await navigator.mediaDevices.getUserMedia({ 
+                const s = await navigator.mediaDevices.getUserMedia({
                     video: { facingMode: "environment" }, // Prefer back camera
-                    audio: false 
+                    audio: false
                 });
                 setStream(s);
                 if (videoRef.current) {
@@ -34,40 +34,42 @@ export default function CameraCapture({ onCapture, onClose }) {
     }, []);
 
     const capturePhoto = () => {
-    if (!videoRef.current || !canvasRef.current) return;
-    
-    const video = videoRef.current;
-    const canvas = canvasRef.current;
-    
-    // 1. Scale down the image so the Android WebView doesn't crash
-    const MAX_WIDTH = 1280; 
-    let width = video.videoWidth;
-    let height = video.videoHeight;
-    
-    if (width > MAX_WIDTH) {
-        height = Math.round((height * MAX_WIDTH) / width);
-        width = MAX_WIDTH;
-    }
+        if (!videoRef.current || !canvasRef.current) return;
 
-    canvas.width = width;
-    canvas.height = height;
-    
-    const context = canvas.getContext("2d");
-    context.drawImage(video, 0, 0, canvas.width, canvas.height);
-    
-    // 2. Convert to a binary Blob instead of a Base64 string
-    canvas.toBlob((blob) => {
-        if (blob) {
-            // Package the blob as a standard File object
-            const imageFile = new File([blob], `capture-${Date.now()}.jpg`, { type: "image/jpeg" });
-            
-            // Pass the File object to the ImageKit upload function
-            onCapture(imageFile);
-            stopCamera();
+        const video = videoRef.current;
+        const canvas = canvasRef.current;
+
+        // 1. Scale the image down to prevent WebView crashes and API payload limits
+        const MAX_WIDTH = 1280;
+        let width = video.videoWidth;
+        let height = video.videoHeight;
+
+        if (width > MAX_WIDTH) {
+            height = Math.round((height * MAX_WIDTH) / width);
+            width = MAX_WIDTH;
         }
-    }, "image/jpeg", 0.8);
-};
 
+        canvas.width = width;
+        canvas.height = height;
+
+        const context = canvas.getContext("2d");
+        context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+        // 2. Convert to a binary Blob instead of a massive Base64 string
+        canvas.toBlob((blob) => {
+            if (blob) {
+                // Package the blob as a standard File object
+                const imageFile = new File([blob], `capture-${Date.now()}.jpg`, { type: "image/jpeg" });
+
+                // Pass the File object to the ImageKit upload function
+                onCapture(imageFile);
+                stopCamera();
+            } else {
+                console.error("Failed to generate image blob");
+                setError("Failed to capture image. Please try again.");
+            }
+        }, "image/jpeg", 0.8);
+    };
     const stopCamera = () => {
         if (stream) {
             stream.getTracks().forEach(track => track.stop());
@@ -98,14 +100,14 @@ export default function CameraCapture({ onCapture, onClose }) {
                     </div>
                 ) : (
                     <>
-                        <video 
-                            ref={videoRef} 
-                            autoPlay 
-                            playsInline 
+                        <video
+                            ref={videoRef}
+                            autoPlay
+                            playsInline
                             style={{ width: "100%", display: "block" }}
                         />
                         <canvas ref={canvasRef} style={{ display: "none" }} />
-                        
+
                         <div style={{
                             position: "absolute",
                             bottom: "20px",
@@ -115,7 +117,7 @@ export default function CameraCapture({ onCapture, onClose }) {
                             justifyContent: "center",
                             gap: "20px"
                         }}>
-                            <button 
+                            <button
                                 type="button"
                                 onClick={capturePhoto}
                                 style={{
@@ -128,7 +130,7 @@ export default function CameraCapture({ onCapture, onClose }) {
                                 }}
                             />
                         </div>
-                        <button 
+                        <button
                             type="button"
                             onClick={onClose}
                             style={{
