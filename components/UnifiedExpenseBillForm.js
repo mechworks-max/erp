@@ -168,8 +168,13 @@ export default function UnifiedExpenseBillForm({ onSuccess, initialData }) {
             const authParams = await authenticator();
             const { signature, expire, token, publicKey, urlEndpoint } = authParams;
 
+            let finalFileToUpload = fileOrDataUrl;
+            if (typeof fileOrDataUrl === "string" && fileOrDataUrl.includes("base64,")) {
+                finalFileToUpload = fileOrDataUrl.split("base64,")[1];
+            }
+
             const uploadResult = await upload({
-                file: fileOrDataUrl,
+                file: finalFileToUpload,
                 fileName: `material_${Date.now()}.jpg`,
                 folder: "/materials",
                 signature,
@@ -200,7 +205,7 @@ export default function UnifiedExpenseBillForm({ onSuccess, initialData }) {
     // --- Unified Submit Handler ---
     const handleSubmit = async (e) => {
         e.preventDefault();
-        
+
         if (!selectedProject) {
             setError("Please select a project");
             return;
@@ -221,7 +226,7 @@ export default function UnifiedExpenseBillForm({ onSuccess, initialData }) {
         try {
             // 1. Submit Payment Request
             let paymentRequestRes;
-            
+
             if (initialData) {
                 paymentRequestRes = await fetch(`/api/payment-requests/${initialData.id}`, {
                     method: "PATCH",
@@ -281,7 +286,7 @@ export default function UnifiedExpenseBillForm({ onSuccess, initialData }) {
                         })
                     });
                 });
-                
+
                 await Promise.all(reminderPromises);
             }
 
@@ -307,7 +312,7 @@ export default function UnifiedExpenseBillForm({ onSuccess, initialData }) {
             }
 
             setShowSuccess(true);
-            
+
             setTimeout(() => {
                 setShowSuccess(false);
                 if (onSuccess) onSuccess();
@@ -361,7 +366,7 @@ export default function UnifiedExpenseBillForm({ onSuccess, initialData }) {
                 <h3 style={{ fontSize: "18px", fontWeight: 600, marginBottom: "16px", color: "var(--text)" }}>Add Expenses & Materials</h3>
                 {materials.map((m, index) => (
                     <div key={index} style={{ marginBottom: "16px", padding: "16px", background: "rgba(0,0,0,0.02)", borderRadius: "12px", border: "1px solid rgba(0,0,0,0.05)" }}>
-                        
+
                         <div style={{ marginBottom: "12px" }}>
                             <Popover open={workerSearchOpen[index]} onOpenChange={(open) => setWorkerSearchOpen(prev => ({ ...prev, [index]: open }))}>
                                 <PopoverTrigger asChild>
@@ -415,9 +420,9 @@ export default function UnifiedExpenseBillForm({ onSuccess, initialData }) {
                             <div style={{ display: "flex", gap: "8px", overflowX: "auto", paddingBottom: "12px", scrollbarWidth: "none" }} className="no-scrollbar">
                                 <span style={{ fontSize: "12px", color: "var(--text-muted)", display: "flex", alignItems: "center" }}>Suggestions:</span>
                                 {suggestions[m.worker_id].map((suggestion, i) => (
-                                    <Badge 
-                                        key={i} 
-                                        variant="secondary" 
+                                    <Badge
+                                        key={i}
+                                        variant="secondary"
                                         className="cursor-pointer whitespace-nowrap hover:bg-gray-200"
                                         onClick={() => updateMaterial(index, "name", suggestion)}
                                     >
@@ -537,9 +542,9 @@ export default function UnifiedExpenseBillForm({ onSuccess, initialData }) {
                         {m.worker_id && (
                             <div style={{ marginTop: "16px", padding: "12px", background: "rgba(59, 130, 246, 0.05)", borderRadius: "8px", border: "1px solid rgba(59, 130, 246, 0.1)" }}>
                                 <label style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer", fontSize: "13px", fontWeight: 500, color: "var(--text)" }}>
-                                    <input 
-                                        type="checkbox" 
-                                        checked={m.is_recurring} 
+                                    <input
+                                        type="checkbox"
+                                        checked={m.is_recurring}
                                         onChange={(e) => updateMaterial(index, "is_recurring", e.target.checked)}
                                         style={{ accentColor: "var(--primary)", width: "16px", height: "16px" }}
                                     />
@@ -548,11 +553,11 @@ export default function UnifiedExpenseBillForm({ onSuccess, initialData }) {
                                 {m.is_recurring && (
                                     <div style={{ marginTop: "12px", display: "flex", alignItems: "center", gap: "8px" }}>
                                         <span style={{ fontSize: "13px", color: "var(--text-muted)" }}>Generate request on day:</span>
-                                        <input 
-                                            type="number" 
-                                            min="1" 
-                                            max="31" 
-                                            className="input-field" 
+                                        <input
+                                            type="number"
+                                            min="1"
+                                            max="31"
+                                            className="input-field"
                                             style={{ width: "60px", padding: "4px 8px" }}
                                             placeholder="DD"
                                             value={m.reminder_day}

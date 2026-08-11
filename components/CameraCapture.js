@@ -40,7 +40,7 @@ export default function CameraCapture({ onCapture, onClose }) {
         const canvas = canvasRef.current;
 
         // 1. Scale the image down to prevent WebView crashes and API payload limits
-        const MAX_WIDTH = 1280;
+        const MAX_WIDTH = 1080;
         let width = video.videoWidth;
         let height = video.videoHeight;
 
@@ -68,7 +68,7 @@ export default function CameraCapture({ onCapture, onClose }) {
                 console.error("Failed to generate image blob");
                 setError("Failed to capture image. Please try again.");
             }
-        }, "image/jpeg", 0.8);
+        }, "image/jpeg", 0.7);
     };
     const stopCamera = () => {
         if (stream) {
