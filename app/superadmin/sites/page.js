@@ -98,10 +98,18 @@ export default function ManageSitesPage() {
                         <label className="block text-sm font-medium text-gray-700">Radius (meters)</label>
                         <input
                             type="number"
+                            min="1"
+                            step="1"
                             required
                             className="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border"
                             value={formData.radius}
-                            onChange={(e) => setFormData({...formData, radius: e.target.value})}
+                            onChange={(e) => {
+                                const radiusValue = e.target.valueAsNumber;
+                                setFormData({
+                                    ...formData,
+                                    radius: Number.isNaN(radiusValue) ? "" : radiusValue
+                                });
+                            }}
                         />
                     </div>
                     <div className="md:col-span-4 flex justify-end">

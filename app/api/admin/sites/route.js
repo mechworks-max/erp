@@ -45,7 +45,7 @@ export async function POST(req) {
                 name,
                 latitude: parseFloat(latitude),
                 longitude: parseFloat(longitude),
-                radius: radius ? parseFloat(radius) : 30, // Default to 30m
+                radius: radius ? parseFloat(radius) : 500,
                 status: status || "ACTIVE",
                 createdBy: user.id
             }
