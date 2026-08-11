@@ -41,7 +41,7 @@ export default function ManageSitesPage() {
             const data = await res.json();
             if (data.success) {
                 toast.success("Site created successfully");
-                setFormData({ name: "", latitude: "", longitude: "", radius: 300 });
+                setFormData({ name: "", latitude: "", longitude: "", radius: 500 });
                 fetchSites();
             } else {
                 toast.error(data.message || "Failed to create site");
