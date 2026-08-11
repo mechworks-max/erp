@@ -6,7 +6,7 @@ import { toast } from "react-hot-toast";
 export default function ManageSitesPage() {
     const [sites, setSites] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [formData, setFormData] = useState({ name: "", latitude: "", longitude: "", radius: 30 });
+    const [formData, setFormData] = useState({ name: "", latitude: "", longitude: "", radius: 500 });
     const [isSubmitting, setIsSubmitting] = useState(false);
 
     const fetchSites = async () => {
