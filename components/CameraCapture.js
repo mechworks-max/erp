@@ -34,20 +34,39 @@ export default function CameraCapture({ onCapture, onClose }) {
     }, []);
 
     const capturePhoto = () => {
-        if (!videoRef.current || !canvasRef.current) return;
-        
-        const video = videoRef.current;
-        const canvas = canvasRef.current;
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        
-        const context = canvas.getContext("2d");
-        context.drawImage(video, 0, 0, canvas.width, canvas.height);
-        
-        const dataUrl = canvas.toDataURL("image/jpeg", 0.8);
-        onCapture(dataUrl);
-        stopCamera();
-    };
+    if (!videoRef.current || !canvasRef.current) return;
+    
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    
+    // 1. Scale down the image so the Android WebView doesn't crash
+    const MAX_WIDTH = 1280; 
+    let width = video.videoWidth;
+    let height = video.videoHeight;
+    
+    if (width > MAX_WIDTH) {
+        height = Math.round((height * MAX_WIDTH) / width);
+        width = MAX_WIDTH;
+    }
+
+    canvas.width = width;
+    canvas.height = height;
+    
+    const context = canvas.getContext("2d");
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    
+    // 2. Convert to a binary Blob instead of a Base64 string
+    canvas.toBlob((blob) => {
+        if (blob) {
+            // Package the blob as a standard File object
+            const imageFile = new File([blob], `capture-${Date.now()}.jpg`, { type: "image/jpeg" });
+            
+            // Pass the File object to the ImageKit upload function
+            onCapture(imageFile);
+            stopCamera();
+        }
+    }, "image/jpeg", 0.8);
+};
 
     const stopCamera = () => {
         if (stream) {
