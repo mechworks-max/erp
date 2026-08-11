@@ -57,18 +57,16 @@ export default function CameraCapture({ onCapture, onClose }) {
 
         // 2. Convert to a binary Blob instead of a massive Base64 string
         canvas.toBlob((blob) => {
-            if (blob) {
-                // Package the blob as a standard File object
-                const imageFile = new File([blob], `capture-${Date.now()}.jpg`, { type: "image/jpeg" });
+            const formData = new FormData();
+            formData.append('file', blob, 'capture.jpg');
+            formData.append('fileName', 'capture.jpg');
 
-                // Pass the File object to the ImageKit upload function
-                onCapture(imageFile);
-                stopCamera();
-            } else {
-                console.error("Failed to generate image blob");
-                setError("Failed to capture image. Please try again.");
-            }
-        }, "image/jpeg", 0.7);
+            // Send to your Next.js API or directly to ImageKit
+            fetch('/api/upload', {
+                method: 'POST',
+                body: formData,
+            })
+        }, 'image/jpeg', 0.8);
     };
     const stopCamera = () => {
         if (stream) {
