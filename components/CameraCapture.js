@@ -34,7 +34,12 @@ export default function CameraCapture({ onCapture, onClose }) {
     }, []);
 
     const capturePhoto = () => {
-        if (!videoRef.current || !canvasRef.current) return;
+        console.log("[CameraCapture] capturePhoto called");
+
+        if (!videoRef.current || !canvasRef.current) {
+            console.error("[CameraCapture] videoRef or canvasRef missing");
+            return;
+        }
 
         const video = videoRef.current;
         const canvas = canvasRef.current;
@@ -42,6 +47,14 @@ export default function CameraCapture({ onCapture, onClose }) {
         const MAX_WIDTH = 1080;
         let width = video.videoWidth;
         let height = video.videoHeight;
+
+        console.log("[CameraCapture] video dimensions before resize:", {
+            width,
+            height,
+            readyState: video.readyState,
+            videoWidth: video.videoWidth,
+            videoHeight: video.videoHeight,
+        });
 
         if (width > MAX_WIDTH) {
             height = Math.round((height * MAX_WIDTH) / width);
@@ -52,12 +65,21 @@ export default function CameraCapture({ onCapture, onClose }) {
         canvas.height = height;
 
         const context = canvas.getContext("2d");
+        if (!context) {
+            console.error("[CameraCapture] 2D canvas context not available");
+            return;
+        }
+
         context.drawImage(video, 0, 0, canvas.width, canvas.height);
 
         const dataUrl = canvas.toDataURL("image/jpeg", 0.8);
+        console.log("[CameraCapture] image generated, dataURL length:", dataUrl.length);
 
         if (typeof onCapture === "function") {
+            console.log("[CameraCapture] forwarding captured image to parent callback");
             onCapture(dataUrl);
+        } else {
+            console.warn("[CameraCapture] onCapture callback not provided");
         }
 
         stopCamera();

@@ -95,15 +95,29 @@ export default function UnifiedExpenseBillForm({ onSuccess, initialData }) {
 
     // --- Shared Authenticator ---
     const authenticator = async () => {
+        console.log("[ImageUpload] Starting authenticator");
         try {
             const response = await fetch("/api/upload-auth");
+            console.log("[ImageUpload] upload-auth response status:", response.status, response.statusText);
+
             if (!response.ok) {
                 const errorText = await response.text();
+                console.error("[ImageUpload] Auth request failed:", { status: response.status, errorText });
                 throw new Error(`Auth failed (${response.status}): ${errorText}`);
             }
-            return await response.json();
+
+            const data = await response.json();
+            console.log("[ImageUpload] Auth payload received:", {
+                hasToken: Boolean(data?.token),
+                hasSignature: Boolean(data?.signature),
+                hasPublicKey: Boolean(data?.publicKey),
+                hasUrlEndpoint: Boolean(data?.urlEndpoint),
+                expire: data?.expire,
+            });
+
+            return data;
         } catch (error) {
-            console.error("Authenticator error:", error);
+            console.error("[ImageUpload] Authenticator error:", error);
             throw new Error("Failed to authenticate for upload");
         }
     };
@@ -161,6 +175,13 @@ export default function UnifiedExpenseBillForm({ onSuccess, initialData }) {
     };
 
     const handleMaterialImageUpload = async (index, fileOrDataUrl) => {
+        console.log("[ImageUpload] handleMaterialImageUpload start:", {
+            index,
+            type: typeof fileOrDataUrl,
+            isDataUrl: typeof fileOrDataUrl === "string" && fileOrDataUrl.startsWith("data:"),
+            fileLength: typeof fileOrDataUrl === "string" ? fileOrDataUrl.length : (fileOrDataUrl?.size || "n/a"),
+        });
+
         setUploadingMaterial(index);
         setError("");
 
@@ -171,7 +192,18 @@ export default function UnifiedExpenseBillForm({ onSuccess, initialData }) {
             let finalFileToUpload = fileOrDataUrl;
             if (typeof fileOrDataUrl === "string" && fileOrDataUrl.includes("base64,")) {
                 finalFileToUpload = fileOrDataUrl.split("base64,")[1];
+                console.log("[ImageUpload] base64 image detected, trimmed to payload length:", finalFileToUpload.length);
             }
+
+            console.log("[ImageUpload] calling ImageKit upload with payload:", {
+                fileType: typeof finalFileToUpload,
+                fileName: `material_${Date.now()}.jpg`,
+                folder: "/materials",
+                hasSignature: Boolean(signature),
+                hasToken: Boolean(token),
+                hasPublicKey: Boolean(publicKey),
+                hasUrlEndpoint: Boolean(urlEndpoint),
+            });
 
             const uploadResult = await upload({
                 file: finalFileToUpload,
@@ -184,10 +216,16 @@ export default function UnifiedExpenseBillForm({ onSuccess, initialData }) {
                 urlEndpoint,
             });
 
+            console.log("[ImageUpload] ImageKit upload success:", {
+                url: uploadResult?.url,
+                fileId: uploadResult?.fileId,
+                thumbnailUrl: uploadResult?.thumbnailUrl,
+            });
+
             updateMaterial(index, "image_url", uploadResult.url);
             updateMaterial(index, "image_file_id", uploadResult.fileId);
         } catch (err) {
-            console.error("Material Upload Error:", err);
+            console.error("[ImageUpload] Material Upload Error:", err);
             let errorMessage = "Failed to upload photo";
             if (err instanceof ImageKitAbortError) errorMessage = "Upload aborted";
             else if (err instanceof ImageKitInvalidRequestError) errorMessage = "Invalid upload request";
