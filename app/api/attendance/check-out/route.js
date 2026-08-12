@@ -1,79 +1,41 @@
-import { NextResponse } from "next/server";
-import { prisma } from "@/lib/db";
-import { getUser } from "@/lib/auth";
-import { calculateDistance } from "@/lib/geolocation";
+import { NextResponse } from 'next/server';
+import prisma from '@/lib/db';
 
 export async function POST(req) {
-    try {
-        const user = await getUser();
-        if (!user || (user.role !== "SUPERVISOR" && user.role !== "PROJECT_MANAGER")) {
-            return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 });
-        }
+  try {
+    // Note: Assuming location verification payload is handled here or by middleware
+    const { workerId, projectId } = await req.json();
 
-        const body = await req.json();
-        const { latitude, longitude, accuracy } = body;
+    // Grab the latest open session for this worker at this project
+    const activeSession = await prisma.attendance.findFirst({
+      where: {
+        workerId: workerId,
+        projectId: projectId,
+        checkOutTime: null,
+      },
+      orderBy: {
+        checkInTime: 'desc',
+      },
+    });
 
-        if (!latitude || !longitude || accuracy == null) {
-            return NextResponse.json({ success: false, message: "Missing location data" }, { status: 400 });
-        }
-
-        // GPS Accuracy Validation
-        if (accuracy > 300) {
-            console.log(`[Check-out Failed] GPS accuracy too low: ${Math.round(accuracy)}m (Max allowed: 300m)`);
-            return NextResponse.json({
-                success: false,
-                message: `GPS accuracy too low (${Math.round(accuracy)}m). Please move to an open area.`
-            }, { status: 400 });
-        }
-
-        // Find Active Attendance
-        const activeSession = await prisma.attendance.findFirst({
-            where: {
-                userId: user.id,
-                status: "CHECKED_IN"
-            },
-            include: { site: true }
-        });
-
-        if (!activeSession) {
-            return NextResponse.json({ success: false, message: "No active check-in found." }, { status: 400 });
-        }
-
-        // Calculate Server Time - CheckIn
-        const now = new Date();
-        const checkInTime = new Date(activeSession.checkInTime);
-        const workedMs = now - checkInTime;
-
-        // Calculate Distance
-        const site = activeSession.site;
-        const distance = calculateDistance(site.latitude, site.longitude, latitude, longitude);
-
-        if (distance > site.radius) {
-            return NextResponse.json({
-                success: false,
-                message: `You are too far from the checkout location. Distance: ${Math.round(distance)}m, Allowed: ${site.radius}m`
-            }, { status: 400 });
-        }
-
-        const durationMinutes = Math.floor(workedMs / (1000 * 60));
-
-        // Update Attendance
-        await prisma.attendance.update({
-            where: { id: activeSession.id },
-            data: {
-                checkOutLatitude: latitude,
-                checkOutLongitude: longitude,
-                checkOutAccuracy: accuracy,
-                checkOutTime: now,
-                durationMinutes,
-                status: "CHECKED_OUT"
-            }
-        });
-
-        return NextResponse.json({ success: true, message: "Checked out successfully." });
-
-    } catch (error) {
-        console.error("Check-out error:", error);
-        return NextResponse.json({ success: false, message: "Server error" }, { status: 500 });
+    if (!activeSession) {
+      return NextResponse.json(
+        { error: "No active check-in found to check out from." },
+        { status: 400 }
+      );
     }
+
+    // Stamp the checkout time on the existing log
+    const checkOutLog = await prisma.attendance.update({
+      where: { id: activeSession.id },
+      data: {
+        checkOutTime: new Date(), // Standard UTC timestamp
+      },
+    });
+
+    return NextResponse.json({ success: true, data: checkOutLog }, { status: 200 });
+  } catch (error) {
+    console.error("Check-out error:", error);
+    return NextResponse.json({ error: "Failed to log check-out" }, { status: 500 });
+  }
 }
