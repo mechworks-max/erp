@@ -39,7 +39,6 @@ export default function CameraCapture({ onCapture, onClose }) {
         const video = videoRef.current;
         const canvas = canvasRef.current;
 
-        // 1. Scale the image down to prevent WebView crashes and API payload limits
         const MAX_WIDTH = 1080;
         let width = video.videoWidth;
         let height = video.videoHeight;
@@ -55,18 +54,13 @@ export default function CameraCapture({ onCapture, onClose }) {
         const context = canvas.getContext("2d");
         context.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-        // 2. Convert to a binary Blob instead of a massive Base64 string
-        canvas.toBlob((blob) => {
-            const formData = new FormData();
-            formData.append('file', blob, 'capture.jpg');
-            formData.append('fileName', 'capture.jpg');
+        const dataUrl = canvas.toDataURL("image/jpeg", 0.8);
 
-            // Send to your Next.js API or directly to ImageKit
-            fetch('/api/upload', {
-                method: 'POST',
-                body: formData,
-            })
-        }, 'image/jpeg', 0.8);
+        if (typeof onCapture === "function") {
+            onCapture(dataUrl);
+        }
+
+        stopCamera();
     };
     const stopCamera = () => {
         if (stream) {
