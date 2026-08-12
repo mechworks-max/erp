@@ -41,6 +41,8 @@ export default function UnifiedExpenseBillForm({ onSuccess, initialData }) {
     const [billPreviewUrl, setBillPreviewUrl] = useState(null);
     const [billUploadData, setBillUploadData] = useState({ url: "", fileId: "" });
     const [isUploadingBill, setIsUploadingBill] = useState(false);
+    const [showBillCamera, setShowBillCamera] = useState(false);
+    const billFileInputRef = useRef(null);
 
     // --- Fetch Projects ---
     useEffect(() => {
@@ -238,6 +240,46 @@ export default function UnifiedExpenseBillForm({ onSuccess, initialData }) {
         }
     };
 
+    const handleBillImageUpload = async (fileOrDataUrl) => {
+        setIsUploadingBill(true);
+        setError("");
+
+        try {
+            const authParams = await authenticator();
+            const { signature, expire, token, publicKey, urlEndpoint } = authParams;
+
+            let finalFileToUpload = fileOrDataUrl;
+            if (typeof fileOrDataUrl === "string" && fileOrDataUrl.includes("base64,")) {
+                finalFileToUpload = fileOrDataUrl.split("base64,")[1];
+            }
+
+            const uploadResult = await upload({
+                file: finalFileToUpload,
+                fileName: `bill_${Date.now()}.jpg`,
+                folder: "/bills",
+                signature,
+                expire,
+                token,
+                publicKey,
+                urlEndpoint,
+            });
+
+            setBillUploadData({ url: uploadResult.url, fileId: uploadResult.fileId });
+            setBillPreviewUrl(uploadResult.url);
+        } catch (err) {
+            console.error("[ImageUpload] Bill Upload Error:", err);
+            let errorMessage = "Failed to upload bill photo";
+            if (err instanceof ImageKitAbortError) errorMessage = "Upload aborted";
+            else if (err instanceof ImageKitInvalidRequestError) errorMessage = "Invalid upload request";
+            else if (err instanceof ImageKitUploadNetworkError) errorMessage = "Network error during upload";
+            else if (err instanceof ImageKitServerError) errorMessage = "ImageKit server error";
+            else if (err.message) errorMessage = err.message;
+            setError(`Upload Error: ${errorMessage}`);
+        } finally {
+            setIsUploadingBill(false);
+        }
+    };
+
     const totalAmount = materials.reduce((sum, m) => sum + Number(m.unit_price || 0), 0);
 
     // --- Unified Submit Handler ---
@@ -350,6 +392,10 @@ export default function UnifiedExpenseBillForm({ onSuccess, initialData }) {
             }
 
             setShowSuccess(true);
+            setBillName("");
+            setBillAmount("");
+            setBillPreviewUrl(null);
+            setBillUploadData({ url: "", fileId: "" });
 
             setTimeout(() => {
                 setShowSuccess(false);
@@ -400,6 +446,92 @@ export default function UnifiedExpenseBillForm({ onSuccess, initialData }) {
                 </select>
             </div>
 
+            <div style={{ marginBottom: "32px", padding: "16px", background: "rgba(0,0,0,0.02)", borderRadius: "12px", border: "1px solid rgba(0,0,0,0.05)" }}>
+                <h3 style={{ fontSize: "18px", fontWeight: 600, marginBottom: "16px", color: "var(--text)" }}>General Bill (Optional)</h3>
+
+                <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", marginBottom: "12px" }}>
+                    <input
+                        type="text"
+                        placeholder="Bill name (e.g. Cement Invoice)"
+                        className="input-field"
+                        style={{ flex: "2", minWidth: "180px", color: "#000", background: "#fff" }}
+                        value={billName}
+                        onChange={(e) => setBillName(e.target.value)}
+                    />
+                    <input
+                        type="number"
+                        placeholder="Amount (optional)"
+                        className="input-field"
+                        style={{ flex: "1", minWidth: "120px", color: "#000", background: "#fff" }}
+                        value={billAmount}
+                        onChange={(e) => setBillAmount(e.target.value)}
+                    />
+                </div>
+
+                <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                    {billPreviewUrl ? (
+                        <div style={{ position: "relative", width: "60px", height: "60px", borderRadius: "8px", overflow: "hidden", border: "1px solid var(--border)" }}>
+                            <img src={billPreviewUrl} alt="Bill" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setBillPreviewUrl(null);
+                                    setBillUploadData({ url: "", fileId: "" });
+                                }}
+                                style={{ position: "absolute", top: 2, right: 2, background: "rgba(255,255,255,0.8)", border: "none", borderRadius: "50%", width: "16px", height: "16px", fontSize: "10px", cursor: "pointer" }}
+                            >
+                                ✕
+                            </button>
+                        </div>
+                    ) : (
+                        <div style={{ display: "flex", gap: "8px" }}>
+                            <button
+                                type="button"
+                                className="btn-ghost"
+                                style={{ fontSize: "11px", padding: "6px 12px", display: "flex", alignItems: "center", gap: "4px" }}
+                                onClick={() => setShowBillCamera(true)}
+                                disabled={isUploadingBill}
+                            >
+                                📷 {isUploadingBill ? "Uploading..." : "Capture Photo"}
+                            </button>
+                            <button
+                                type="button"
+                                className="btn-ghost"
+                                style={{ fontSize: "11px", padding: "6px 12px", display: "flex", alignItems: "center", gap: "4px" }}
+                                onClick={() => billFileInputRef.current?.click()}
+                                disabled={isUploadingBill}
+                            >
+                                📁 Upload File
+                            </button>
+                        </div>
+                    )}
+                    {isUploadingBill && <span className="spinner" style={{ width: "14px", height: "14px", borderTopColor: "var(--primary)" }}></span>}
+                    {!billPreviewUrl && <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>* Photo of the bill is recommended</span>}
+                </div>
+
+                <input
+                    type="file"
+                    ref={billFileInputRef}
+                    style={{ display: "none" }}
+                    accept="image/*"
+                    onChange={(e) => {
+                        if (e.target.files?.[0]) {
+                            handleBillImageUpload(e.target.files[0]);
+                        }
+                    }}
+                />
+
+                {showBillCamera && (
+                    <CameraCapture
+                        onCapture={(dataUrl) => {
+                            setShowBillCamera(false);
+                            handleBillImageUpload(dataUrl);
+                        }}
+                        onClose={() => setShowBillCamera(false)}
+                    />
+                )}
+            </div>
+
             <div style={{ marginBottom: "32px" }}>
                 <h3 style={{ fontSize: "18px", fontWeight: 600, marginBottom: "16px", color: "var(--text)" }}>Add Expenses & Materials</h3>
                 {materials.map((m, index) => (
@@ -417,7 +549,7 @@ export default function UnifiedExpenseBillForm({ onSuccess, initialData }) {
                                         <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                                     </button>
                                 </PopoverTrigger>
-                                <PopoverContent className="w-[300px] p-0">
+                                <PopoverContent className="w-75 p-0">
                                     <Command shouldFilter={false}>
                                         <CommandInput
                                             placeholder="Search worker by name..."
