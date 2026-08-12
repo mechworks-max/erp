@@ -412,35 +412,37 @@ export default function ManagerAttendancePage() {
                         {/* Main Card */}
                         <div className="attendance-card glass-card" style={{ padding: "28px", borderRadius: "20px" }}>
 
-                            {status?.completedToday ? (
-                                /* ── Completed State ────────────────── */
-                                <div style={{
-                                    textAlign: "center",
-                                    padding: "36px 20px",
-                                    background: "linear-gradient(135deg, rgba(16, 185, 129, 0.08), rgba(16, 185, 129, 0.03))",
-                                    border: "1.5px solid rgba(16, 185, 129, 0.2)",
-                                    borderRadius: "16px",
-                                }}>
-                                    <div style={{
-                                        width: "64px",
-                                        height: "64px",
-                                        borderRadius: "50%",
-                                        background: "rgba(16, 185, 129, 0.12)",
-                                        display: "inline-flex",
-                                        alignItems: "center",
-                                        justifyContent: "center",
-                                        fontSize: "32px",
-                                        marginBottom: "16px",
-                                    }}>✅</div>
-                                    <h3 style={{ fontSize: "18px", color: "var(--success)", fontWeight: "700", marginBottom: "8px" }}>
-                                        Shift Completed
-                                    </h3>
-                                    <p style={{ color: "var(--muted-foreground)", fontSize: "14px", lineHeight: "1.6", maxWidth: "300px", margin: "0 auto" }}>
-                                        You&apos;ve completed your shift for today. The next check-in window opens tomorrow at 3:00 AM.
-                                    </p>
-                                </div>
-                            ) : (
-                                <>
+                            <>
+                                    {/* ── Today's Sessions (multiple check-in/out cycles) ── */}
+                                    {status?.sessions?.length > 0 && (
+                                        <div style={{
+                                            background: "var(--background)",
+                                            borderRadius: "14px",
+                                            border: "1px solid var(--border)",
+                                            marginBottom: "20px",
+                                            padding: "14px 16px",
+                                        }}>
+                                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
+                                                <span style={{ fontSize: "13px", fontWeight: "700", color: "var(--muted-foreground)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                                                    Today&apos;s Sessions ({status.sessionCountToday})
+                                                </span>
+                                                <span style={{ fontSize: "13px", fontWeight: "700", color: "var(--foreground)" }}>
+                                                    {Math.floor((status.totalMinutesToday || 0) / 60)}h {(status.totalMinutesToday || 0) % 60}m total
+                                                </span>
+                                            </div>
+                                            {status.sessions.map((s) => (
+                                                <div key={s.id} style={{ display: "flex", justifyContent: "space-between", fontSize: "13px", padding: "6px 0", color: "var(--muted-foreground)" }}>
+                                                    <span>{s.site?.name || "Unknown Site"}</span>
+                                                    <span>
+                                                        {new Date(s.checkInTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                                                        {" – "}
+                                                        {s.checkOutTime ? new Date(s.checkOutTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "In progress"}
+                                                    </span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+
                                     {/* ── Status Info Section ────────────── */}
                                     <div style={{
                                         background: "var(--background)",
@@ -591,7 +593,6 @@ export default function ManagerAttendancePage() {
                                         </div>
                                     )}
                                 </>
-                            )}
 
                             {/* ── Location Error Banner ────────── */}
                             {locationError && (

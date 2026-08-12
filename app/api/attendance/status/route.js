@@ -11,52 +11,67 @@ export async function GET() {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         }
 
-        // Find active attendance session
-        const activeSession = await prisma.attendance.findFirst({
+        // Day boundary at 3:00 AM, same convention the app already used, just
+        // for grouping "today's" sessions for display — it no longer blocks
+        // anything.
+        const now = new Date();
+        const startOfDay = new Date(now);
+        if (startOfDay.getHours() < 3) {
+            startOfDay.setDate(startOfDay.getDate() - 1);
+        }
+        startOfDay.setHours(3, 0, 0, 0);
+
+        // Every check-in/check-out pair for today, oldest first. This is the
+        // raw log — nothing here is a computed/stored aggregate.
+        const todaySessions = await prisma.attendance.findMany({
             where: {
                 userId: user.id,
-                status: "CHECKED_IN"
+                checkInTime: { gte: startOfDay }
             },
-            include: { site: true },
-            orderBy: { checkInTime: "desc" }
+            include: { site: { select: { id: true, name: true } } },
+            orderBy: { checkInTime: "asc" }
         });
 
-        if (!activeSession) {
-            // Check if they completed today (boundary 3:00 AM)
-            const now = new Date();
-            const startOfDay = new Date(now);
-            if (startOfDay.getHours() < 3) {
-                // If it's before 3 AM, the "day" started yesterday at 3 AM
-                startOfDay.setDate(startOfDay.getDate() - 1);
-            }
-            startOfDay.setHours(3, 0, 0, 0);
+        // Recalculate everything from the raw checkInTime/checkOutTime values
+        // ourselves, in JS, rather than trusting any stored/derived DB field.
+        let totalMinutesToday = 0;
+        const sessions = todaySessions.map((s) => {
+            const checkInTime = s.checkInTime;
+            const checkOutTime = s.checkOutTime;
+            const endForCalc = checkOutTime ? new Date(checkOutTime) : now;
+            const minutes = Math.max(0, Math.floor((endForCalc - new Date(checkInTime)) / (1000 * 60)));
+            totalMinutesToday += minutes;
 
-            const completedSession = await prisma.attendance.findFirst({
-                where: {
-                    userId: user.id,
-                    status: { in: ["CHECKED_OUT", "AUTO_CHECKOUT"] },
-                    checkOutTime: { gte: startOfDay }
-                }
+            return {
+                id: s.id,
+                site: s.site ? { id: s.site.id, name: s.site.name } : null,
+                checkInTime,
+                checkOutTime,
+                status: s.status,
+                minutes
+            };
+        });
+
+        const activeSession = todaySessions.find((s) => s.status === "CHECKED_IN")
+            // Active session might have started before today's boundary (e.g. an overnight shift)
+            || await prisma.attendance.findFirst({
+                where: { userId: user.id, status: "CHECKED_IN" },
+                include: { site: { select: { id: true, name: true } } },
+                orderBy: { checkInTime: "desc" }
             });
 
-            if (completedSession) {
-                return NextResponse.json({
-                    checkedIn: false,
-                    canCheckIn: false,
-                    canCheckout: false,
-                    completedToday: true,
-                    remainingSeconds: 0,
-                    activeSite: null
-                });
-            }
-
+        if (!activeSession) {
+            // No open session right now. Check-in is ALWAYS available here —
+            // there is no once-a-day / time-bound restriction. A user can
+            // check in again immediately after checking out.
             return NextResponse.json({
                 checkedIn: false,
                 canCheckIn: true,
                 canCheckout: false,
-                completedToday: false,
-                remainingSeconds: 0,
-                activeSite: null
+                activeSite: null,
+                sessions,
+                totalMinutesToday,
+                sessionCountToday: sessions.length
             });
         }
 
@@ -64,9 +79,10 @@ export async function GET() {
             checkedIn: true,
             canCheckIn: false,
             canCheckout: true,
-            completedToday: false,
-            remainingSeconds: 0,
-            activeSite: activeSession.site ? { id: activeSession.site.id, name: activeSession.site.name } : null
+            activeSite: activeSession.site ? { id: activeSession.site.id, name: activeSession.site.name } : null,
+            sessions,
+            totalMinutesToday,
+            sessionCountToday: sessions.length
         });
 
     } catch (error) {

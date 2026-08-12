@@ -37,7 +37,7 @@ export async function GET() {
         const presentTodayIds = new Set(attendancesToday.map(a => a.userId));
         const presentToday = presentTodayIds.size;
         const absentToday = totalSupervisors - presentToday;
-        
+
         let totalDurationMinutes = 0;
         let checkoutCount = 0;
         let lateCheckIns = 0;
@@ -45,16 +45,23 @@ export async function GET() {
 
         // Assuming check in after 10:00 AM is late (example criteria)
         // Adjust logic according to actual requirement
-        
+
+        // A user can have several check-in/check-out rows today. We recompute
+        // each row's duration ourselves from its raw checkInTime/checkOutTime
+        // (JS math, not a stored/derived DB value) and sum them, so the total
+        // reflects every session rather than just one.
         attendancesToday.forEach(record => {
-            if (record.durationMinutes) {
-                totalDurationMinutes += record.durationMinutes;
+            if (record.checkOutTime) {
+                const minutes = Math.max(0, Math.floor(
+                    (new Date(record.checkOutTime) - new Date(record.checkInTime)) / (1000 * 60)
+                ));
+                totalDurationMinutes += minutes;
                 checkoutCount++;
             }
             if (record.status === "AUTO_CHECKOUT") {
                 autoCheckouts++;
             }
-            
+
             const checkInDate = new Date(record.checkInTime);
             // Example: Late check in is after 10 AM local time
             if (checkInDate.getHours() >= 10) {
