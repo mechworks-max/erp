@@ -41,8 +41,6 @@ export default function UnifiedExpenseBillForm({ onSuccess, initialData }) {
     const [billPreviewUrl, setBillPreviewUrl] = useState(null);
     const [billUploadData, setBillUploadData] = useState({ url: "", fileId: "" });
     const [isUploadingBill, setIsUploadingBill] = useState(false);
-    const [showBillCamera, setShowBillCamera] = useState(false);
-    const billFileInputRef = useRef(null);
 
     // --- Fetch Projects ---
     useEffect(() => {
@@ -97,29 +95,15 @@ export default function UnifiedExpenseBillForm({ onSuccess, initialData }) {
 
     // --- Shared Authenticator ---
     const authenticator = async () => {
-        console.log("[ImageUpload] Starting authenticator");
         try {
             const response = await fetch("/api/upload-auth");
-            console.log("[ImageUpload] upload-auth response status:", response.status, response.statusText);
-
             if (!response.ok) {
                 const errorText = await response.text();
-                console.error("[ImageUpload] Auth request failed:", { status: response.status, errorText });
                 throw new Error(`Auth failed (${response.status}): ${errorText}`);
             }
-
-            const data = await response.json();
-            console.log("[ImageUpload] Auth payload received:", {
-                hasToken: Boolean(data?.token),
-                hasSignature: Boolean(data?.signature),
-                hasPublicKey: Boolean(data?.publicKey),
-                hasUrlEndpoint: Boolean(data?.urlEndpoint),
-                expire: data?.expire,
-            });
-
-            return data;
+            return await response.json();
         } catch (error) {
-            console.error("[ImageUpload] Authenticator error:", error);
+            console.error("Authenticator error:", error);
             throw new Error("Failed to authenticate for upload");
         }
     };
@@ -177,13 +161,6 @@ export default function UnifiedExpenseBillForm({ onSuccess, initialData }) {
     };
 
     const handleMaterialImageUpload = async (index, fileOrDataUrl) => {
-        console.log("[ImageUpload] handleMaterialImageUpload start:", {
-            index,
-            type: typeof fileOrDataUrl,
-            isDataUrl: typeof fileOrDataUrl === "string" && fileOrDataUrl.startsWith("data:"),
-            fileLength: typeof fileOrDataUrl === "string" ? fileOrDataUrl.length : (fileOrDataUrl?.size || "n/a"),
-        });
-
         setUploadingMaterial(index);
         setError("");
 
@@ -191,24 +168,8 @@ export default function UnifiedExpenseBillForm({ onSuccess, initialData }) {
             const authParams = await authenticator();
             const { signature, expire, token, publicKey, urlEndpoint } = authParams;
 
-            let finalFileToUpload = fileOrDataUrl;
-            if (typeof fileOrDataUrl === "string" && fileOrDataUrl.includes("base64,")) {
-                finalFileToUpload = fileOrDataUrl.split("base64,")[1];
-                console.log("[ImageUpload] base64 image detected, trimmed to payload length:", finalFileToUpload.length);
-            }
-
-            console.log("[ImageUpload] calling ImageKit upload with payload:", {
-                fileType: typeof finalFileToUpload,
-                fileName: `material_${Date.now()}.jpg`,
-                folder: "/materials",
-                hasSignature: Boolean(signature),
-                hasToken: Boolean(token),
-                hasPublicKey: Boolean(publicKey),
-                hasUrlEndpoint: Boolean(urlEndpoint),
-            });
-
             const uploadResult = await upload({
-                file: finalFileToUpload,
+                file: fileOrDataUrl,
                 fileName: `material_${Date.now()}.jpg`,
                 folder: "/materials",
                 signature,
@@ -218,16 +179,10 @@ export default function UnifiedExpenseBillForm({ onSuccess, initialData }) {
                 urlEndpoint,
             });
 
-            console.log("[ImageUpload] ImageKit upload success:", {
-                url: uploadResult?.url,
-                fileId: uploadResult?.fileId,
-                thumbnailUrl: uploadResult?.thumbnailUrl,
-            });
-
             updateMaterial(index, "image_url", uploadResult.url);
             updateMaterial(index, "image_file_id", uploadResult.fileId);
         } catch (err) {
-            console.error("[ImageUpload] Material Upload Error:", err);
+            console.error("Material Upload Error:", err);
             let errorMessage = "Failed to upload photo";
             if (err instanceof ImageKitAbortError) errorMessage = "Upload aborted";
             else if (err instanceof ImageKitInvalidRequestError) errorMessage = "Invalid upload request";
@@ -240,52 +195,12 @@ export default function UnifiedExpenseBillForm({ onSuccess, initialData }) {
         }
     };
 
-    const handleBillImageUpload = async (fileOrDataUrl) => {
-        setIsUploadingBill(true);
-        setError("");
-
-        try {
-            const authParams = await authenticator();
-            const { signature, expire, token, publicKey, urlEndpoint } = authParams;
-
-            let finalFileToUpload = fileOrDataUrl;
-            if (typeof fileOrDataUrl === "string" && fileOrDataUrl.includes("base64,")) {
-                finalFileToUpload = fileOrDataUrl.split("base64,")[1];
-            }
-
-            const uploadResult = await upload({
-                file: finalFileToUpload,
-                fileName: `bill_${Date.now()}.jpg`,
-                folder: "/bills",
-                signature,
-                expire,
-                token,
-                publicKey,
-                urlEndpoint,
-            });
-
-            setBillUploadData({ url: uploadResult.url, fileId: uploadResult.fileId });
-            setBillPreviewUrl(uploadResult.url);
-        } catch (err) {
-            console.error("[ImageUpload] Bill Upload Error:", err);
-            let errorMessage = "Failed to upload bill photo";
-            if (err instanceof ImageKitAbortError) errorMessage = "Upload aborted";
-            else if (err instanceof ImageKitInvalidRequestError) errorMessage = "Invalid upload request";
-            else if (err instanceof ImageKitUploadNetworkError) errorMessage = "Network error during upload";
-            else if (err instanceof ImageKitServerError) errorMessage = "ImageKit server error";
-            else if (err.message) errorMessage = err.message;
-            setError(`Upload Error: ${errorMessage}`);
-        } finally {
-            setIsUploadingBill(false);
-        }
-    };
-
     const totalAmount = materials.reduce((sum, m) => sum + Number(m.unit_price || 0), 0);
 
     // --- Unified Submit Handler ---
     const handleSubmit = async (e) => {
         e.preventDefault();
-
+        
         if (!selectedProject) {
             setError("Please select a project");
             return;
@@ -306,7 +221,7 @@ export default function UnifiedExpenseBillForm({ onSuccess, initialData }) {
         try {
             // 1. Submit Payment Request
             let paymentRequestRes;
-
+            
             if (initialData) {
                 paymentRequestRes = await fetch(`/api/payment-requests/${initialData.id}`, {
                     method: "PATCH",
@@ -366,7 +281,7 @@ export default function UnifiedExpenseBillForm({ onSuccess, initialData }) {
                         })
                     });
                 });
-
+                
                 await Promise.all(reminderPromises);
             }
 
@@ -392,11 +307,7 @@ export default function UnifiedExpenseBillForm({ onSuccess, initialData }) {
             }
 
             setShowSuccess(true);
-            setBillName("");
-            setBillAmount("");
-            setBillPreviewUrl(null);
-            setBillUploadData({ url: "", fileId: "" });
-
+            
             setTimeout(() => {
                 setShowSuccess(false);
                 if (onSuccess) onSuccess();
@@ -446,97 +357,11 @@ export default function UnifiedExpenseBillForm({ onSuccess, initialData }) {
                 </select>
             </div>
 
-            <div style={{ marginBottom: "32px", padding: "16px", background: "rgba(0,0,0,0.02)", borderRadius: "12px", border: "1px solid rgba(0,0,0,0.05)" }}>
-                <h3 style={{ fontSize: "18px", fontWeight: 600, marginBottom: "16px", color: "var(--text)" }}>General Bill (Optional)</h3>
-
-                <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", marginBottom: "12px" }}>
-                    <input
-                        type="text"
-                        placeholder="Bill name (e.g. Cement Invoice)"
-                        className="input-field"
-                        style={{ flex: "2", minWidth: "180px", color: "#000", background: "#fff" }}
-                        value={billName}
-                        onChange={(e) => setBillName(e.target.value)}
-                    />
-                    <input
-                        type="number"
-                        placeholder="Amount (optional)"
-                        className="input-field"
-                        style={{ flex: "1", minWidth: "120px", color: "#000", background: "#fff" }}
-                        value={billAmount}
-                        onChange={(e) => setBillAmount(e.target.value)}
-                    />
-                </div>
-
-                <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                    {billPreviewUrl ? (
-                        <div style={{ position: "relative", width: "60px", height: "60px", borderRadius: "8px", overflow: "hidden", border: "1px solid var(--border)" }}>
-                            <img src={billPreviewUrl} alt="Bill" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    setBillPreviewUrl(null);
-                                    setBillUploadData({ url: "", fileId: "" });
-                                }}
-                                style={{ position: "absolute", top: 2, right: 2, background: "rgba(255,255,255,0.8)", border: "none", borderRadius: "50%", width: "16px", height: "16px", fontSize: "10px", cursor: "pointer" }}
-                            >
-                                ✕
-                            </button>
-                        </div>
-                    ) : (
-                        <div style={{ display: "flex", gap: "8px" }}>
-                            <button
-                                type="button"
-                                className="btn-ghost"
-                                style={{ fontSize: "11px", padding: "6px 12px", display: "flex", alignItems: "center", gap: "4px" }}
-                                onClick={() => setShowBillCamera(true)}
-                                disabled={isUploadingBill}
-                            >
-                                📷 {isUploadingBill ? "Uploading..." : "Capture Photo"}
-                            </button>
-                            <button
-                                type="button"
-                                className="btn-ghost"
-                                style={{ fontSize: "11px", padding: "6px 12px", display: "flex", alignItems: "center", gap: "4px" }}
-                                onClick={() => billFileInputRef.current?.click()}
-                                disabled={isUploadingBill}
-                            >
-                                📁 Upload File
-                            </button>
-                        </div>
-                    )}
-                    {isUploadingBill && <span className="spinner" style={{ width: "14px", height: "14px", borderTopColor: "var(--primary)" }}></span>}
-                    {!billPreviewUrl && <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>* Photo of the bill is recommended</span>}
-                </div>
-
-                <input
-                    type="file"
-                    ref={billFileInputRef}
-                    style={{ display: "none" }}
-                    accept="image/*"
-                    onChange={(e) => {
-                        if (e.target.files?.[0]) {
-                            handleBillImageUpload(e.target.files[0]);
-                        }
-                    }}
-                />
-
-                {showBillCamera && (
-                    <CameraCapture
-                        onCapture={(dataUrl) => {
-                            setShowBillCamera(false);
-                            handleBillImageUpload(dataUrl);
-                        }}
-                        onClose={() => setShowBillCamera(false)}
-                    />
-                )}
-            </div>
-
             <div style={{ marginBottom: "32px" }}>
                 <h3 style={{ fontSize: "18px", fontWeight: 600, marginBottom: "16px", color: "var(--text)" }}>Add Expenses & Materials</h3>
                 {materials.map((m, index) => (
                     <div key={index} style={{ marginBottom: "16px", padding: "16px", background: "rgba(0,0,0,0.02)", borderRadius: "12px", border: "1px solid rgba(0,0,0,0.05)" }}>
-
+                        
                         <div style={{ marginBottom: "12px" }}>
                             <Popover open={workerSearchOpen[index]} onOpenChange={(open) => setWorkerSearchOpen(prev => ({ ...prev, [index]: open }))}>
                                 <PopoverTrigger asChild>
@@ -590,9 +415,9 @@ export default function UnifiedExpenseBillForm({ onSuccess, initialData }) {
                             <div style={{ display: "flex", gap: "8px", overflowX: "auto", paddingBottom: "12px", scrollbarWidth: "none" }} className="no-scrollbar">
                                 <span style={{ fontSize: "12px", color: "var(--text-muted)", display: "flex", alignItems: "center" }}>Suggestions:</span>
                                 {suggestions[m.worker_id].map((suggestion, i) => (
-                                    <Badge
-                                        key={i}
-                                        variant="secondary"
+                                    <Badge 
+                                        key={i} 
+                                        variant="secondary" 
                                         className="cursor-pointer whitespace-nowrap hover:bg-gray-200"
                                         onClick={() => updateMaterial(index, "name", suggestion)}
                                     >
@@ -712,9 +537,9 @@ export default function UnifiedExpenseBillForm({ onSuccess, initialData }) {
                         {m.worker_id && (
                             <div style={{ marginTop: "16px", padding: "12px", background: "rgba(59, 130, 246, 0.05)", borderRadius: "8px", border: "1px solid rgba(59, 130, 246, 0.1)" }}>
                                 <label style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer", fontSize: "13px", fontWeight: 500, color: "var(--text)" }}>
-                                    <input
-                                        type="checkbox"
-                                        checked={m.is_recurring}
+                                    <input 
+                                        type="checkbox" 
+                                        checked={m.is_recurring} 
                                         onChange={(e) => updateMaterial(index, "is_recurring", e.target.checked)}
                                         style={{ accentColor: "var(--primary)", width: "16px", height: "16px" }}
                                     />
@@ -723,11 +548,11 @@ export default function UnifiedExpenseBillForm({ onSuccess, initialData }) {
                                 {m.is_recurring && (
                                     <div style={{ marginTop: "12px", display: "flex", alignItems: "center", gap: "8px" }}>
                                         <span style={{ fontSize: "13px", color: "var(--text-muted)" }}>Generate request on day:</span>
-                                        <input
-                                            type="number"
-                                            min="1"
-                                            max="31"
-                                            className="input-field"
+                                        <input 
+                                            type="number" 
+                                            min="1" 
+                                            max="31" 
+                                            className="input-field" 
                                             style={{ width: "60px", padding: "4px 8px" }}
                                             placeholder="DD"
                                             value={m.reminder_day}
