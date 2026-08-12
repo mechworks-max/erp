@@ -40,18 +40,9 @@ export async function POST(req) {
         }
 
         // Calculate Server Time - CheckIn
-        const MIN_WORKING_MINUTES = 420; // 7 hours
-        const MIN_WORKING_MS = MIN_WORKING_MINUTES * 60 * 1000;
         const now = new Date();
         const checkInTime = new Date(activeSession.checkInTime);
         const workedMs = now - checkInTime;
-
-        if (workedMs < MIN_WORKING_MS) {
-            return NextResponse.json({
-                success: false,
-                message: "Minimum working duration of 7 hours not completed."
-            }, { status: 400 });
-        }
 
         // Calculate Distance
         const site = activeSession.site;

@@ -55,24 +55,6 @@ export default function ManagerAttendancePage() {
         fetchStatusAndSites();
     }, []);
 
-    // Timer logic
-    useEffect(() => {
-        if (status && status.checkedIn && status.remainingSeconds > 0) {
-            const interval = setInterval(() => {
-                setStatus((prev) => {
-                    if (!prev || prev.remainingSeconds <= 0) return prev;
-                    const newRemaining = prev.remainingSeconds - 1;
-                    return {
-                        ...prev,
-                        remainingSeconds: newRemaining,
-                        canCheckout: newRemaining === 0,
-                    };
-                });
-            }, 1000);
-            return () => clearInterval(interval);
-        }
-    }, [status?.checkedIn, status?.remainingSeconds]);
-
     const requestLocation = () => {
         return new Promise((resolve, reject) => {
             if (!navigator.geolocation) {
@@ -153,13 +135,6 @@ export default function ManagerAttendancePage() {
         } finally {
             setLoading(false);
         }
-    };
-
-    const formatRemainingTime = (seconds) => {
-        if (!seconds) return "0h 0m";
-        const h = Math.floor(seconds / 3600);
-        const m = Math.floor((seconds % 3600) / 60);
-        return `${h}h ${m}m`;
     };
 
     const handleLogout = async () => {
@@ -427,7 +402,7 @@ export default function ManagerAttendancePage() {
                         {/* Hero Section */}
                         <div style={{ textAlign: "center", marginBottom: "28px", padding: "0 16px" }}>
                             <h1 style={{ fontSize: "26px", fontWeight: "700", color: "var(--foreground)", letterSpacing: "-0.02em" }}>
-                                {status?.checkedIn ? "You're Checked In" : "Attendance"}
+                                {status?.checkedIn ? "You&apos;re Checked In" : "Attendance"}
                             </h1>
                             <p style={{ color: "var(--muted-foreground)", marginTop: "6px", fontSize: "15px" }}>
                                 {status?.checkedIn ? "Your shift is currently active" : "Check in to your project location"}
@@ -461,7 +436,7 @@ export default function ManagerAttendancePage() {
                                         Shift Completed
                                     </h3>
                                     <p style={{ color: "var(--muted-foreground)", fontSize: "14px", lineHeight: "1.6", maxWidth: "300px", margin: "0 auto" }}>
-                                        You've completed your shift for today. The next check-in window opens tomorrow at 3:00 AM.
+                                        You&apos;ve completed your shift for today. The next check-in window opens tomorrow at 3:00 AM.
                                     </p>
                                 </div>
                             ) : (
@@ -586,39 +561,6 @@ export default function ManagerAttendancePage() {
                                         </div>
                                     </div>
 
-                                    {/* ── Timer (when checked in) ─────────── */}
-                                    {status?.checkedIn && (
-                                        <div className="attendance-timer-container" style={{ marginBottom: "20px" }}>
-                                            <div style={{ fontSize: "12px", color: "var(--muted-foreground)", fontWeight: "600", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "8px" }}>
-                                                Time Remaining
-                                            </div>
-                                            <div style={{
-                                                fontSize: "40px",
-                                                fontFamily: "'JetBrains Mono', monospace",
-                                                fontWeight: "700",
-                                                color: "var(--foreground)",
-                                                letterSpacing: "0.04em",
-                                            }}>
-                                                {formatRemainingTime(status.remainingSeconds)}
-                                            </div>
-                                            <div style={{
-                                                marginTop: "12px",
-                                                height: "4px",
-                                                borderRadius: "2px",
-                                                background: "var(--border)",
-                                                overflow: "hidden",
-                                            }}>
-                                                <div style={{
-                                                    height: "100%",
-                                                    borderRadius: "2px",
-                                                    background: "linear-gradient(90deg, oklch(0.6996 0.2020 44.4414), var(--success))",
-                                                    width: status.canCheckout ? "100%" : `${Math.max(5, (1 - status.remainingSeconds / 3600) * 100)}%`,
-                                                    transition: "width 1s linear",
-                                                }} />
-                                            </div>
-                                        </div>
-                                    )}
-
                                     {/* ── Site Selection (when not checked in) ── */}
                                     {!status?.checkedIn && (
                                         <div style={{ marginBottom: "20px" }}>
@@ -689,7 +631,7 @@ export default function ManagerAttendancePage() {
                                                 Not at Valid Location
                                             </div>
                                             <p style={{ fontSize: "13px", color: "var(--muted-foreground)", lineHeight: "1.5", margin: 0, marginBottom: "12px" }}>
-                                                You're too far from the project site. Please move closer and try again.
+                                                You&apos;re too far from the project site. Please move closer and try again.
                                             </p>
 
                                             {/* Distance badges */}
@@ -780,8 +722,8 @@ export default function ManagerAttendancePage() {
                                     {status?.checkedIn && (
                                         <button
                                             onClick={() => handleAction("check-out")}
-                                            disabled={loading || !status.canCheckout}
-                                            className={`attendance-checkout-btn ${status.canCheckout ? "ready" : ""}`}
+                                            disabled={loading}
+                                            className="attendance-checkout-btn ready"
                                         >
                                             {loading ? (
                                                 <>
@@ -804,28 +746,6 @@ export default function ManagerAttendancePage() {
                             )}
 
                             {/* ── Checkout Info ──────────────────── */}
-                            {!status?.canCheckout && status?.checkedIn && (
-                                <div style={{
-                                    fontSize: "12px",
-                                    textAlign: "center",
-                                    color: "var(--muted-foreground)",
-                                    marginTop: "14px",
-                                    padding: "10px 12px",
-                                    background: "var(--background)",
-                                    borderRadius: "8px",
-                                    border: "1px solid var(--border)",
-                                    display: "flex",
-                                    alignItems: "center",
-                                    justifyContent: "center",
-                                    gap: "6px",
-                                }}>
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-                                        <circle cx="12" cy="12" r="10" />
-                                        <polyline points="12 6 12 12 16 14" />
-                                    </svg>
-                                    <span>Check-out available after completing minimum shift duration</span>
-                                </div>
-                            )}
                         </div>
                     </div>
                 )}

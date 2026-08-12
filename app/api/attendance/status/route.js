@@ -60,21 +60,12 @@ export async function GET() {
             });
         }
 
-        // Calculate remaining seconds for 7-hour shift requirement
-        const MIN_WORKING_MINUTES = 420;
-        const MIN_WORKING_SECONDS = MIN_WORKING_MINUTES * 60;
-        
-        const now = new Date();
-        const checkInTime = new Date(activeSession.checkInTime);
-        const workedSeconds = Math.floor((now - checkInTime) / 1000);
-        const remainingSeconds = Math.max(0, MIN_WORKING_SECONDS - workedSeconds);
-
         return NextResponse.json({
             checkedIn: true,
             canCheckIn: false,
-            canCheckout: remainingSeconds === 0,
+            canCheckout: true,
             completedToday: false,
-            remainingSeconds,
+            remainingSeconds: 0,
             activeSite: activeSession.site ? { id: activeSession.site.id, name: activeSession.site.name } : null
         });
 
