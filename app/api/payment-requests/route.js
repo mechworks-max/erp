@@ -49,15 +49,29 @@ export async function GET(req) {
                 });
             } else {
                 const pmWhere = {
-                    project: { managers: { some: { id: user.id } } }
-                };
-                if (statusParam && statusParam !== "ALL") {
-                    pmWhere.status = statusParam;
-                } else {
-                    // Default: only show requests waiting for manager review
-                    pmWhere.status = "PENDING_PM";
+    OR: [
+        {
+            project: {
+                managers: {
+                    some: { id: user.id }
                 }
-                if (projectParam) pmWhere.project_id = parseInt(projectParam);
+            }
+        },
+        {
+            pm_id: user.id
+        }
+    ]
+};
+
+if (statusParam && statusParam !== "ALL") {
+    pmWhere.status = statusParam;
+} else {
+    pmWhere.status = "PENDING_PM";
+}
+
+if (projectParam) {
+    pmWhere.project_id = parseInt(projectParam);
+}
 
                 requests = await prisma.paymentRequest.findMany({
                     where: pmWhere,
