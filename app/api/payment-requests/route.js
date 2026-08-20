@@ -8,9 +8,8 @@ export const dynamic = "force-dynamic"; // Rebuild after cache clear
 export async function GET(req) {
     try {
         const { searchParams } = new URL(req.url);
-        const limitParam = searchParams.get('limit');
-        // Default to a sane limit to prevent system from hanging if there are thousands of records
-        const limit = limitParam ? parseInt(limitParam) : 100;
+        const limitParam = searchParams.get("limit");
+        const limit = limitParam ? parseInt(limitParam) : 2000;
         const statusParam = searchParams.get('status');
         const projectParam = searchParams.get('project');
         const ownParam = searchParams.get('own');
