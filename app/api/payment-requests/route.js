@@ -64,7 +64,8 @@ export async function GET(req) {
 
 if (statusParam && statusParam !== "ALL") {
     pmWhere.status = statusParam;
-} else {
+} else if (!statusParam) {
+    // No status supplied = PM approval queue
     pmWhere.status = "PENDING_PM";
 }
 
