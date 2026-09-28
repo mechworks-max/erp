@@ -469,7 +469,7 @@ export default function PaymentRequestList({ refreshTrigger, role, limit = null,
                             <label className="stat-label">Filter by Status</label>
                             <select
                                 className="input-field"
-                                style={{ maxWidth: "250px", marginTop: "8px" }}
+                                style={{ maxWidth: "300px", marginTop: "8px" }}
                                 value={statusFilter}
                                 onChange={(e) => setStatusFilter(e.target.value)}
                                 disabled={loading}
