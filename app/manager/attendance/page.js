@@ -413,7 +413,7 @@ export default function ManagerAttendancePage() {
                         {/* Hero Section */}
                         <div style={{ textAlign: "center", marginBottom: "28px", padding: "0 16px" }}>
                             <h1 style={{ fontSize: "26px", fontWeight: "700", color: "var(--foreground)", letterSpacing: "-0.02em" }}>
-                                {status?.checkedIn ? "You&apos;re Checked In" : "Attendance"}
+                                {status?.checkedIn ? "You're Checked In" : "Attendance"}
                             </h1>
                             <p style={{ color: "var(--muted-foreground)", marginTop: "6px", fontSize: "15px" }}>
                                 {status?.checkedIn ? "Your shift is currently active" : "Check in to your project location"}
@@ -424,35 +424,7 @@ export default function ManagerAttendancePage() {
                         <div className="attendance-card glass-card" style={{ padding: "28px", borderRadius: "20px" }}>
 
                             <>
-                                    {/* ── Today's Sessions (multiple check-in/out cycles) ── */}
-                                    {status?.sessions?.length > 0 && (
-                                        <div style={{
-                                            background: "var(--background)",
-                                            borderRadius: "14px",
-                                            border: "1px solid var(--border)",
-                                            marginBottom: "20px",
-                                            padding: "14px 16px",
-                                        }}>
-                                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
-                                                <span style={{ fontSize: "13px", fontWeight: "700", color: "var(--muted-foreground)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
-                                                    Today&apos;s Sessions ({status.sessionCountToday})
-                                                </span>
-                                                <span style={{ fontSize: "13px", fontWeight: "700", color: "var(--foreground)" }}>
-                                                    {Math.floor((status.totalMinutesToday || 0) / 60)}h {(status.totalMinutesToday || 0) % 60}m total
-                                                </span>
-                                            </div>
-                                            {status.sessions.map((s) => (
-                                                <div key={s.id} style={{ display: "flex", justifyContent: "space-between", fontSize: "13px", padding: "6px 0", color: "var(--muted-foreground)" }}>
-                                                    <span>{s.site?.name || "Unknown Site"}</span>
-                                                    <span>
-                                                        {new Date(s.checkInTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                                                        {" – "}
-                                                        {s.checkOutTime ? new Date(s.checkOutTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "In progress"}
-                                                    </span>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    )}
+
 
                                     {/* ── Status Info Section ────────────── */}
                                     <div style={{
