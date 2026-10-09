@@ -46,26 +46,30 @@ export default function PaymentRequestList({ refreshTrigger, role, limit = null,
     const [visibleCounts, setVisibleCounts] = useState({}); // { [groupKey]: number } - default 10
     const [loadedSubRequests, setLoadedSubRequests] = useState({}); // { [groupKey]: Array }
     const [loadingSubRequests, setLoadingSubRequests] = useState({}); // { [groupKey]: boolean }
-
+    const inFlightGroups = useRef(new Set());
     const toggleGroup = async (req) => {
         const key = getReqKey(req);
         const willExpand = !expandedGroups[key];
         setExpandedGroups(prev => ({ ...prev, [key]: willExpand }));
 
         // On-demand lazy load: if expanding AND sub-requests for this date group are not yet loaded
-        if (willExpand && !loadedSubRequests[key]) {
+        if (willExpand && !loadedSubRequests[key] && !inFlightGroups.current.has(key)) {
             const requestIds = req.requestIds || (req.id ? [req.id] : []);
             if (requestIds.length > 0) {
+                inFlightGroups.current.add(key);
                 setLoadingSubRequests(prev => ({ ...prev, [key]: true }));
                 try {
                     const res = await fetch(`/api/payment-requests/group-details?ids=${requestIds.join(",")}`);
                     const data = await res.json();
-                    if (Array.isArray(data)) {
-                        setLoadedSubRequests(prev => ({ ...prev, [key]: data }));
+                    if (!res.ok || !Array.isArray(data)) {
+                        throw new Error(data?.error || "Unexpected response from group-details");
                     }
+                    setLoadedSubRequests(prev => ({ ...prev, [key]: data }));
                 } catch (err) {
                     console.error("Error fetching sub-requests for group:", err);
+                    addToast("Could not load details", "Please collapse and expand the card to try again.", "error");
                 } finally {
+                    inFlightGroups.current.delete(key);
                     setLoadingSubRequests(prev => ({ ...prev, [key]: false }));
                 }
             }
@@ -94,6 +98,7 @@ export default function PaymentRequestList({ refreshTrigger, role, limit = null,
             if (limit) {
                 params.append("limit", limit);
             }
+            params.append("compact", "true");
             const res = await fetch(`/api/payment-requests?${params.toString()}`);
             const data = await res.json();
             setRequests(Array.isArray(data) ? data : []);
@@ -203,6 +208,8 @@ export default function PaymentRequestList({ refreshTrigger, role, limit = null,
 
             if (res.ok) {
                 setLastActionTimes(prev => ({ ...prev, [actionKey]: now }));
+                setLoadedSubRequests({});
+                setExpandedGroups({});
 
                 // Read response body to detect bypass approvals
                 let responseData = {};
@@ -214,16 +221,18 @@ export default function PaymentRequestList({ refreshTrigger, role, limit = null,
                 // Optimistic update
                 if (isSubRequest && action === "reject") {
                     setRequests(prev => prev.map(req => {
-                        if (req.isClubbed && req.subRequests) {
-                            const updatedSubReqs = req.subRequests.filter(s => s.id !== id);
-                            if (updatedSubReqs.length === 0) return null; // Remove group completely if empty
+                        if (req.isClubbed && (req.requestIds || []).includes(id)) {
+                            const without = (arr) => (arr || []).filter(rid => rid !== id);
+                            const remainingIds = without(req.requestIds);
+                            if (remainingIds.length === 0) return null; // Remove group completely if empty
 
                             return {
                                 ...req,
-                                subRequests: updatedSubReqs,
-                                requestIds: updatedSubReqs.map(s => s.id),
-                                materials: updatedSubReqs.flatMap(s => s.materials),
-                                total_amount: updatedSubReqs.reduce((sum, s) => sum + parseFloat(s.total_amount), 0)
+                                requestIds: remainingIds,
+                                actionableRequestIds: without(req.actionableRequestIds),
+                                approvableRequestIds: without(req.approvableRequestIds),
+                                directApprovableRequestIds: without(req.directApprovableRequestIds),
+                                payableRequestIds: without(req.payableRequestIds)
                             };
                         }
                         return req;
@@ -276,11 +285,7 @@ export default function PaymentRequestList({ refreshTrigger, role, limit = null,
         await handleAction(sub.id, action, false, [], sub.project_id, progressPct, true);
         // Close modal after action (success or failure — handleAction shows a toast either way)
         setSelectedRequest(null);
-        // Also sync loadedSubRequests so the accordion body reflects the change immediately
-        setLoadedSubRequests(prev => ({
-            ...prev,
-            [groupKey]: (prev[groupKey] || []).filter(s => s.id !== sub.id)
-        }));
+        
     };
 
     // Handle partial (per-material) approval from inside the ExpenseDetailModal
@@ -314,7 +319,8 @@ export default function PaymentRequestList({ refreshTrigger, role, limit = null,
                         "success"
                     );
                 }
-
+                setLoadedSubRequests({});
+                setExpandedGroups({});
                 // Refresh the list
                 setTimeout(() => fetchRequests(), 800);
             } else {
@@ -500,8 +506,7 @@ export default function PaymentRequestList({ refreshTrigger, role, limit = null,
                         const reqKey = getReqKey(req);
                         const isExpanded = !!expandedGroups[reqKey];
                         const isSubLoading = !!loadingSubRequests[reqKey];
-                        const fetchedSubList = loadedSubRequests[reqKey];
-                        const subList = fetchedSubList && fetchedSubList.length > 0 ? fetchedSubList : (req.subRequests && req.subRequests.length > 0 ? req.subRequests : [req]);
+                        const subList = loadedSubRequests[reqKey] || [];
                         const visibleCount = visibleCounts[reqKey] || 10;
                         const displayedSubList = subList.slice(0, visibleCount);
                         const hasMoreSubRequests = visibleCount < subList.length;
@@ -799,7 +804,7 @@ export default function PaymentRequestList({ refreshTrigger, role, limit = null,
                                                  // ── Normal approvable: PENDING_ADMIN only (SA regular approve) ──
                                                  const normalApprovableIds = role === "SUPER_ADMIN"
                                                      ? ((req.approvableRequestIds || []).filter(rid =>
-                                                         (req.subRequests || []).find(s => s.id === rid)?.status === "PENDING_ADMIN"
+                                                         !(req.directApprovableRequestIds || []).includes(rid)
                                                        ))
                                                      : ((req.approvableRequestIds && req.approvableRequestIds.length > 0)
                                                          ? req.approvableRequestIds
@@ -809,17 +814,11 @@ export default function PaymentRequestList({ refreshTrigger, role, limit = null,
 
                                                  // ── Direct approvable: PENDING_PM only (SA bypass) ──
                                                  const directApprovableIds = role === "SUPER_ADMIN"
-                                                     ? ((req.directApprovableRequestIds && req.directApprovableRequestIds.length > 0)
-                                                         ? req.directApprovableRequestIds
-                                                         : (req.subRequests || []).filter(s => s.status === "PENDING_PM").map(s => s.id))
-                                                     : [];
+                                                     ? (req.directApprovableRequestIds || []): [];
 
                                                  // ── Payable: APPROVED requests (SA mark as paid) ──
                                                  const payableIds = role === "SUPER_ADMIN"
-                                                     ? ((req.payableRequestIds && req.payableRequestIds.length > 0)
-                                                         ? req.payableRequestIds
-                                                         : (req.subRequests || []).filter(s => s.status === "APPROVED").map(s => s.id))
-                                                     : [];
+                                                     ? (req.payableRequestIds || []) : [];
 
                                                  const hasActions = normalApprovableIds.length > 0 || directApprovableIds.length > 0 || payableIds.length > 0;
                                                  if (!hasActions) return null;

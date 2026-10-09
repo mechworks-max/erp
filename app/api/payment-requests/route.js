@@ -46,6 +46,7 @@ function clubRequestsByISTDay(requests, compact, isSuperAdmin = false, targetSta
                 payableRequestIds: isPayable ? [req.id] : [],
                 _total_amount: reqAmount,
                 _supervisor_names: [req.supervisor?.name || "Self"],
+                statuses: [req.status],
             };
             if (!compact) {
                 clubbedMap[clubKey]._materials = [...(req.materials || [])];
@@ -65,6 +66,9 @@ function clubRequestsByISTDay(requests, compact, isSuperAdmin = false, targetSta
                 group.payableRequestIds.push(req.id);
             }
             group._total_amount += reqAmount;
+            if (!group.statuses.includes(req.status)) {
+                group.statuses.push(req.status);
+            }
             if (req.supervisor?.name && !group._supervisor_names.includes(req.supervisor.name)) {
                 group._supervisor_names.push(req.supervisor.name);
             }
@@ -79,8 +83,8 @@ function clubRequestsByISTDay(requests, compact, isSuperAdmin = false, targetSta
         .map((c) => {
             const { _total_amount, _supervisor_names, _materials, ...rest } = c;
             let primaryStatus = rest.status;
-            if (isSuperAdmin && rest.subRequests && rest.subRequests.length > 0) {
-                const statuses = [...new Set(rest.subRequests.map(s => s.status))];
+            if (isSuperAdmin && rest.statuses && rest.statuses.length > 0) {
+                const statuses = rest.statuses;
                 if (statuses.length === 1) {
                     primaryStatus = statuses[0];
                 } else if (statuses.includes("PENDING_ADMIN")) {
@@ -103,10 +107,7 @@ function clubRequestsByISTDay(requests, compact, isSuperAdmin = false, targetSta
         });
 
     if (isSuperAdmin && targetStatus && targetStatus !== "ALL") {
-        result = result.filter(group => {
-            if (!group.subRequests) return group.status === targetStatus;
-            return group.subRequests.some(s => s.status === targetStatus);
-        });
+                result = result.filter(group => group.statuses.includes(targetStatus));
     }
 
     return result.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
@@ -123,6 +124,8 @@ export async function GET(req) {
         const statusParam = searchParams.get('status');
         const projectParam = searchParams.get('project');
         const ownParam = searchParams.get('own');
+        const compact = searchParams.get('compact') === 'true';
+        const materialsInclude = compact ? {} : { materials: true };
 
         const user = await getUser();
         if (!user) {
@@ -134,7 +137,7 @@ export async function GET(req) {
         if (hasRole(user, "SUPERVISOR")) {
             requests = await prisma.paymentRequest.findMany({
                 where: { supervisor_id: user.id },
-                include: { project: true, materials: true },
+                include: { project: true, ...materialsInclude },
                 orderBy: { created_at: "desc" },
                 ...(limit ? { take: limit } : {})
             });
@@ -150,7 +153,7 @@ export async function GET(req) {
                     where: pmWhere,
                     include: { 
                         project: true, 
-                        materials: true, 
+                        ...materialsInclude,
                         supervisor: { select: { name: true } }
                     },
                     orderBy: { created_at: "desc" },
@@ -187,7 +190,7 @@ if (projectParam) {
                     where: pmWhere,
                     include: { 
                         project: true, 
-                        materials: true, 
+                        ...materialsInclude, 
                         supervisor: { select: { name: true } }
                     },
                     orderBy: { created_at: "desc" },
@@ -196,7 +199,7 @@ if (projectParam) {
 
                 // Day-wise clubbing for Manager — uses IST-aware helper so dates
                 // are always grouped by the IST calendar day, not UTC.
-                requests = clubRequestsByISTDay(requests, false);
+                requests = clubRequestsByISTDay(requests, compact);
             }
         } else if (hasRole(user, "SUPER_ADMIN")) {
             const adminWhere = {};
@@ -232,7 +235,7 @@ if (projectParam) {
                         },
                         include: { 
                             project: true, 
-                            materials: true, 
+                            ...materialsInclude, 
                             supervisor: { select: { name: true } },
                             pm: { select: { name: true } }
                         },
@@ -244,7 +247,7 @@ if (projectParam) {
                     where: adminWhere,
                     include: { 
                         project: true, 
-                        materials: true, 
+                        ...materialsInclude, 
                         supervisor: { select: { name: true } },
                         pm: { select: { name: true } }
                     },
@@ -254,7 +257,7 @@ if (projectParam) {
             }
 
             // Day-wise clubbing for Super Admin — groups all requests on same IST date for same project
-            requests = clubRequestsByISTDay(requests, false, true, activeTargetStatus);
+            requests = clubRequestsByISTDay(requests, compact, true, activeTargetStatus);
         }
 
         // Attach latest progress for each project (for PM and Super Admin)
