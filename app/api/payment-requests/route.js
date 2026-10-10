@@ -206,39 +206,37 @@ if (projectParam) {
 
             if (activeTargetStatus !== "ALL") {
                 // Step 1: Fast indexed query to find projects & dates with matching target status
-                const targetMatches = await prisma.paymentRequest.findMany({
-                    where: {
-                        ...adminWhere,
-                        status: activeTargetStatus
-                    },
-                    select: { id: true, project_id: true, created_at: true },
-                    orderBy: { created_at: "desc" },
-                    ...(limit ? { take: limit } : { take: 100 })
-                });
+                
 
-                if (targetMatches.length === 0) {
-                    requests = [];
-                } else {
-                    const matchedProjectIds = [...new Set(targetMatches.map(m => m.project_id))];
-                    const minTimestamp = Math.min(...targetMatches.map(m => new Date(m.created_at).getTime())) - 86400000;
-                    const minDate = new Date(minTimestamp);
+                
 
                     // Step 2: Fetch full details for matched projects and dates only
-                    requests = await prisma.paymentRequest.findMany({
-                        where: {
-                            ...adminWhere,
-                            project_id: { in: matchedProjectIds },
-                            created_at: { gte: minDate }
-                        },
-                        include: { 
-                            project: true, 
-                            materials: true, 
-                            supervisor: { select: { name: true } },
-                            pm: { select: { name: true } }
-                        },
-                        orderBy: { created_at: "desc" }
-                    });
-                }
+                                    
+                const filterProjectId = projectParam ? parseInt(projectParam) : null;
+                const matchLimit = limit ? limit : 100;
+                requests = await prisma.$queryRaw`
+                    SELECT r.id, r.status::text AS status, r.total_amount, r.project_id,
+                           r.supervisor_id, r.pm_id, r.pm_bypassed, r.created_at, r.updated_at,
+                           to_jsonb(p) AS project,
+                           jsonb_build_object('name', s.name) AS supervisor,
+                           CASE WHEN pm.id IS NULL THEN NULL ELSE jsonb_build_object('name', pm.name) END AS pm,
+                           COALESCE((SELECT jsonb_agg(to_jsonb(m) ORDER BY m.id) FROM materials m WHERE m.request_id = r.id), '[]'::jsonb) AS materials
+                    FROM payment_requests r
+                    JOIN projects p ON p.id = r.project_id
+                    JOIN users s ON s.id = r.supervisor_id
+                    LEFT JOIN users pm ON pm.id = r.pm_id
+                    WHERE (r.project_id, ((r.created_at AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Kolkata')::date) IN (
+                        SELECT t.project_id, ((t.created_at AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Kolkata')::date
+                        FROM (
+                            SELECT project_id, created_at
+                            FROM payment_requests
+                            WHERE status = ${activeTargetStatus}::"PaymentStatus"
+                              AND (${filterProjectId}::int IS NULL OR project_id = ${filterProjectId}::int)
+                            ORDER BY created_at DESC
+                            LIMIT ${matchLimit}
+                        ) t
+                    )
+                    ORDER BY r.created_at DESC`;
             } else {
                 requests = await prisma.paymentRequest.findMany({
                     where: adminWhere,
