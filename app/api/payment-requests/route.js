@@ -109,7 +109,7 @@ function clubRequestsByISTDay(requests, compact, isSuperAdmin = false, targetSta
         });
     }
 
-    return result.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    return result.sort((a, b) => new Date(b.created_at) - new Date(a.created_at) || (b.project_id - a.project_id));
 }
 
 
@@ -124,12 +124,28 @@ export async function GET(req) {
         const projectParam = searchParams.get('project');
         const ownParam = searchParams.get('own');
 
+        const PAGE_SIZE = 50;
+        const paginate = searchParams.get('paginate') === 'true';
+        let cursorTime = null;
+        let cursorProject = null;
+        const cursorParam = searchParams.get('cursor');
+        if (cursorParam) {
+            const [timePart, projectPart] = cursorParam.split("_");
+            const parsedTime = new Date(timePart);
+            if (isNaN(parsedTime.getTime()) || !Number.isInteger(parseInt(projectPart))) {
+                return NextResponse.json({ error: "Invalid cursor" }, { status: 400 });
+            }
+            cursorTime = parsedTime.toISOString();
+            cursorProject = parseInt(projectPart);
+        }
+
         const user = await getUser();
         if (!user) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         }
 
         let requests;
+        let nextCursor = null;
 
         if (hasRole(user, "SUPERVISOR")) {
             requests = await prisma.paymentRequest.findMany({
@@ -204,41 +220,65 @@ if (projectParam) {
 
             const activeTargetStatus = (statusParam && statusParam !== "ALL") ? statusParam : (!statusParam ? "PENDING_ADMIN" : "ALL");
 
-            if (activeTargetStatus !== "ALL") {
-                // Step 1: Fast indexed query to find projects & dates with matching target status
-                const targetMatches = await prisma.paymentRequest.findMany({
-                    where: {
-                        ...adminWhere,
-                        status: activeTargetStatus
-                    },
-                    select: { id: true, project_id: true, created_at: true },
-                    orderBy: { created_at: "desc" },
-                    ...(limit ? { take: limit } : { take: 100 })
-                });
-
-                if (targetMatches.length === 0) {
-                    requests = [];
-                } else {
-                    const matchedProjectIds = [...new Set(targetMatches.map(m => m.project_id))];
-                    const minTimestamp = Math.min(...targetMatches.map(m => new Date(m.created_at).getTime())) - 86400000;
-                    const minDate = new Date(minTimestamp);
-
-                    // Step 2: Fetch full details for matched projects and dates only
-                    requests = await prisma.paymentRequest.findMany({
-                        where: {
-                            ...adminWhere,
-                            project_id: { in: matchedProjectIds },
-                            created_at: { gte: minDate }
-                        },
-                        include: { 
-                            project: true, 
-                            materials: true, 
-                            supervisor: { select: { name: true } },
-                            pm: { select: { name: true } }
-                        },
-                        orderBy: { created_at: "desc" }
-                    });
-                }
+                        if (paginate) {
+                // Paginated history: one query picks the next PAGE_SIZE groups (project + IST day),
+                // newest request first, then loads every request of those groups.
+                // A page holds PAGE_SIZE + 1 groups; the extra one only tells us if more exist.
+                const statusFilter = activeTargetStatus !== "ALL" ? activeTargetStatus : null;
+                const pageProjectId = projectParam ? parseInt(projectParam) : null;
+                requests = await prisma.$queryRaw`
+                    WITH g AS (
+                        SELECT project_id,
+                               ((created_at AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Kolkata')::date AS day
+                        FROM payment_requests
+                        WHERE (${pageProjectId}::int IS NULL OR project_id = ${pageProjectId}::int)
+                        GROUP BY project_id, ((created_at AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Kolkata')::date
+                        HAVING (${statusFilter}::"PaymentStatus" IS NULL OR bool_or(status = ${statusFilter}::"PaymentStatus"))
+                           AND (${cursorTime}::timestamp IS NULL
+                                OR (MAX(created_at), project_id) < (${cursorTime}::timestamp, ${cursorProject}::int))
+                        ORDER BY MAX(created_at) DESC, project_id DESC
+                        LIMIT ${PAGE_SIZE + 1}
+                    )
+                    SELECT r.id, r.status::text AS status, r.total_amount, r.project_id,
+                           r.supervisor_id, r.pm_id, r.pm_bypassed, r.created_at, r.updated_at,
+                           to_jsonb(p) AS project,
+                           jsonb_build_object('name', s.name) AS supervisor,
+                           CASE WHEN pm.id IS NULL THEN NULL ELSE jsonb_build_object('name', pm.name) END AS pm,
+                           COALESCE((SELECT jsonb_agg(to_jsonb(m) ORDER BY m.id) FROM materials m WHERE m.request_id = r.id), '[]'::jsonb) AS materials
+                    FROM payment_requests r
+                    JOIN g ON g.project_id = r.project_id
+                          AND g.day = ((r.created_at AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Kolkata')::date
+                    JOIN projects p ON p.id = r.project_id
+                    JOIN users s ON s.id = r.supervisor_id
+                    LEFT JOIN users pm ON pm.id = r.pm_id
+                    ORDER BY r.created_at DESC, r.id DESC`;
+            } else if (activeTargetStatus !== "ALL") {
+                                                    
+                const filterProjectId = projectParam ? parseInt(projectParam) : null;
+                const matchLimit = limit ? limit : 100;
+                requests = await prisma.$queryRaw`
+                    SELECT r.id, r.status::text AS status, r.total_amount, r.project_id,
+                           r.supervisor_id, r.pm_id, r.pm_bypassed, r.created_at, r.updated_at,
+                           to_jsonb(p) AS project,
+                           jsonb_build_object('name', s.name) AS supervisor,
+                           CASE WHEN pm.id IS NULL THEN NULL ELSE jsonb_build_object('name', pm.name) END AS pm,
+                           COALESCE((SELECT jsonb_agg(to_jsonb(m) ORDER BY m.id) FROM materials m WHERE m.request_id = r.id), '[]'::jsonb) AS materials
+                    FROM payment_requests r
+                    JOIN projects p ON p.id = r.project_id
+                    JOIN users s ON s.id = r.supervisor_id
+                    LEFT JOIN users pm ON pm.id = r.pm_id
+                    WHERE (r.project_id, ((r.created_at AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Kolkata')::date) IN (
+                        SELECT t.project_id, ((t.created_at AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Kolkata')::date
+                        FROM (
+                            SELECT project_id, created_at
+                            FROM payment_requests
+                            WHERE status = ${activeTargetStatus}::"PaymentStatus"
+                              AND (${filterProjectId}::int IS NULL OR project_id = ${filterProjectId}::int)
+                            ORDER BY created_at DESC
+                            LIMIT ${matchLimit}
+                        ) t
+                    )
+                    ORDER BY r.created_at DESC`;
             } else {
                 requests = await prisma.paymentRequest.findMany({
                     where: adminWhere,
@@ -255,6 +295,18 @@ if (projectParam) {
 
             // Day-wise clubbing for Super Admin — groups all requests on same IST date for same project
             requests = clubRequestsByISTDay(requests, false, true, activeTargetStatus);
+
+            if (paginate) {
+                // The query returned up to PAGE_SIZE + 1 groups. Keep PAGE_SIZE; the extra one
+                // only proves another page exists. The cursor is the last kept group's
+                // newest request time plus its project id.
+                const hasMore = requests.length > PAGE_SIZE;
+                requests = requests.slice(0, PAGE_SIZE);
+                if (hasMore) {
+                    const lastGroup = requests[requests.length - 1];
+                    nextCursor = new Date(lastGroup.created_at).toISOString() + "_" + lastGroup.project_id;
+                }
+            }
         }
 
         // Attach latest progress for each project (for PM and Super Admin)
@@ -295,7 +347,9 @@ if (projectParam) {
                 progress: progressMap[r.project_id] || null
             }));
         }
-
+        if (paginate && hasRole(user, "SUPER_ADMIN")) {
+            return NextResponse.json({ items: requests, nextCursor });
+        }
         return NextResponse.json(requests);
     } catch (error) {
         console.error("GET payment requests error:", error);

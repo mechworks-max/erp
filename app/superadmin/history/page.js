@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect,useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
@@ -8,6 +8,24 @@ import ShimmerLoader from "@/components/ShimmerLoader";
 import TableShimmerLoader from "@/components/TableShimmerLoader";
 import CardShimmerLoader from "@/components/CardShimmerLoader";
 import { formatDateDDMMYYYY } from "@/lib/utils";
+    
+   
+function ScrollSentinel({ onReachBottom }) {
+    const ref = useRef(null);
+
+    useEffect(() => {
+        const observer = new IntersectionObserver(
+            (entries) => {
+                if (entries[0].isIntersecting) onReachBottom();
+            },
+            { threshold: 0.1 }
+        );
+        if (ref.current) observer.observe(ref.current);
+        return () => observer.disconnect();
+    }, [onReachBottom]);
+
+    return <div ref={ref} style={{ height: "10px", width: "100%" }} />;
+}
 
 export default function PaymentHistory() {
     const [requests, setRequests] = useState([]);
@@ -15,6 +33,11 @@ export default function PaymentHistory() {
     const [selectedProjectId, setSelectedProjectId] = useState(null);
     const [statusFilter, setStatusFilter] = useState("ALL");
     const [loading, setLoading] = useState(true);
+    const [nextCursor, setNextCursor] = useState(null); 
+    const [loadingMore, setLoadingMore] = useState(false);
+    const [exporting, setExporting] = useState(false);
+    const requestSeq = useRef(0); 
+    const loadingMoreRef = useRef(false);
     const [isMenuOpen, setIsMenuOpen] = useState(false);
     const router = useRouter();
 
@@ -28,21 +51,48 @@ export default function PaymentHistory() {
     }, []);
 
     const fetchHistory = async () => {
+        const seq = ++requestSeq.current;
         try {
             setLoading(true);
+             setRequests([]);
+            setNextCursor(null);
             // Always send status explicitly: "ALL" = no status filter (full history),
             // specific status = filtered. Never omit it, or the backend defaults to PENDING_ADMIN.
-            const url = `/api/payment-requests?limit=2000&status=${statusFilter}${selectedProjectId ? `&project=${selectedProjectId}` : ''}`;
+            const url = `/api/payment-requests?paginate=true&status=${statusFilter}${selectedProjectId ? `&project=${selectedProjectId}` : ''}`;
             const res = await fetch(url);
             const data = await res.json();
-            setRequests(Array.isArray(data) ? data : []);
+            if (seq !== requestSeq.current) return; // a newer request replaced this one
+            if (!res.ok || !Array.isArray(data.items)) throw new Error(data?.error || "Unexpected response");
+            setRequests(data.items);
+            setNextCursor(data.nextCursor || null);
         } catch (err) {
             console.error(err);
         } finally {
-            setLoading(false);
+            if (seq === requestSeq.current) setLoading(false);
         }
     };
-
+        // Next page: a NEW network request with the bookmark; the rows are appended.
+    const loadMore = async () => {
+        if (!nextCursor || loadingMoreRef.current || loading) return;
+        const seq = requestSeq.current;
+        loadingMoreRef.current = true;
+        setLoadingMore(true);
+        try {
+            const cursorPart = `&cursor=${encodeURIComponent(nextCursor)}`;
+            const url = `/api/payment-requests?paginate=true&status=${statusFilter}${selectedProjectId ? `&project=${selectedProjectId}` : ''}${cursorPart}`;
+            const res = await fetch(url);
+            const data = await res.json();
+            if (seq !== requestSeq.current) return; // filter changed meanwhile, drop this page
+            if (!res.ok || !Array.isArray(data.items)) throw new Error(data?.error || "Unexpected response");
+            setRequests(prev => [...prev, ...data.items]);
+            setNextCursor(data.nextCursor || null);
+        } catch (err) {
+            console.error(err);
+        } finally {
+            loadingMoreRef.current = false;
+            setLoadingMore(false);
+        }
+    };
     const fetchProjects = async () => {
         try {
             const res = await fetch("/api/projects");
@@ -61,17 +111,42 @@ export default function PaymentHistory() {
         fetchProjects();
     }, []);
 
-    const exportToExcel = () => {
-        if (!requests || requests.length === 0) {
+    const exportToExcel = async() => {
+        if (exporting) return;
+        setExporting(true);
+
+        const allRequests = [];
+        try {
+            let cursor = null;
+            let pageCount = 0;
+            do {
+                const url = `/api/payment-requests?paginate=true&status=${statusFilter}${selectedProjectId ? `&project=${selectedProjectId}` : ''}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`;
+                const res = await fetch(url);
+                const data = await res.json();
+                if (!res.ok || !Array.isArray(data.items)) throw new Error(data?.error || "Unexpected response");
+                allRequests.push(...data.items);
+                cursor = data.nextCursor || null;
+                pageCount++;
+            } while (cursor && pageCount < 500); // 500 pages is a safety stop
+        } catch (err) {
+            console.error(err);
+            alert("Export failed. Please try again.");
+            setExporting(false);
+            return;
+        }
+        setExporting(false);
+
+        if (allRequests.length === 0) {
             alert("No data to export");
             return;
         }
+
 
         const headers = ["Date", "Project", "Requested By", "Approver (PM)", "Materials", "Amount", "Status"];
         const csvRows = [];
         csvRows.push(headers.join(","));
 
-        requests.forEach(req => {
+        allRequests.forEach(req => {
             const date = formatDateDDMMYYYY(req.created_at);
             const project = req.project?.name || "";
             const requestedBy = req.supervisor?.name || "Self";
@@ -264,6 +339,17 @@ export default function PaymentHistory() {
                     </table>
                     </div>
                 </div>
+                {!loading && nextCursor && <ScrollSentinel onReachBottom={loadMore} />}
+                {loadingMore && (
+                    <div style={{ padding: "16px", textAlign: "center", color: "var(--text-muted)", fontSize: "13px" }}>
+                        Loading more...
+                    </div>
+                )}
+                {!loading && !nextCursor && requests.length > 0 && (
+                    <div className="no-print" style={{ padding: "16px", textAlign: "center", color: "var(--text-muted)", fontSize: "13px" }}>
+                        End of history
+                    </div>
+                )}
             </main>
 
             <style jsx global>{`
